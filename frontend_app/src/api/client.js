@@ -336,21 +336,47 @@ export async function getDashboard() {
 // PUBLIC_INTERFACE
 export async function exportCsv() {
   /**
-   * Export defects as CSV from backend (required).
+   * Export defects as CSV from backend.
    * Returns { filename, blob, source }.
+   *
+   * Notes:
+   * - Uses Content-Disposition filename if present.
+   * - Includes credentials for deployments that rely on cookie-based auth.
    */
   const url = `${API_BASE}/defects/export-csv/`;
   debugLog("request", { method: "GET", url });
 
-  const res = await fetch(url, { method: "GET" });
+  const res = await fetch(url, { method: "GET", credentials: "include" });
+
   if (!res.ok) {
+    // Backend errors may come back as JSON (DRF) or HTML (Django debug / proxy).
+    // Try JSON first; fallback to text snippet.
+    let msg = res.statusText || "CSV export failed";
     const data = await parseJson(res);
+    if (data && (data.detail || data.error)) {
+      msg = data.detail || data.error;
+    } else {
+      try {
+        const text = await res.text();
+        if (text) msg = text.slice(0, 200);
+      } catch {
+        // ignore
+      }
+    }
+
     debugLog("response-error", { method: "GET", url, status: res.status, data });
-    const msg = (data && (data.detail || data.error)) || res.statusText || "CSV export failed";
     throw new Error(msg);
   }
+
   const blob = await res.blob();
-  return { filename: "defects.csv", blob, source: "backend" };
+
+  // Prefer backend-provided filename (Content-Disposition).
+  let filename = "defects.csv";
+  const cd = res.headers.get("content-disposition") || "";
+  const m = cd.match(/filename\*?=(?:UTF-8'')?"?([^\";]+)"?/i);
+  if (m && m[1]) filename = decodeURIComponent(m[1]);
+
+  return { filename, blob, source: "backend" };
 }
 
 // PUBLIC_INTERFACE
