@@ -2,15 +2,17 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createAction, listActions, listDefects, updateAction } from "../api/client";
 import { OverduePill, StatusPill, formatDate } from "../components/ui";
 
-const ACTION_STATUSES = ["Open", "In Progress", "Done", "Verified", "Closed"];
+const ACTION_STATUSES = ["Open", "In Progress", "Blocked", "Done", "Cancelled"];
 
 // PUBLIC_INTERFACE
 export default function ActionsPage() {
-  /** Track corrective actions, ownership, due dates, and completion. */
+  /** Track corrective actions, ownership, due dates, completion, and overdue escalation. */
   const [actions, setActions] = useState([]);
   const [defects, setDefects] = useState([]);
   const [loading, setLoading] = useState(true);
+
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   const [filters, setFilters] = useState({ q: "", status: "All" });
 
@@ -45,7 +47,7 @@ export default function ActionsPage() {
   const filtered = useMemo(() => {
     const q = filters.q.trim().toLowerCase();
     return actions
-      .filter((a) => (filters.status === "All" ? true : a.status === filters.status))
+      .filter((a) => (filters.status === "All" ? true : (a.status || "").toLowerCase() === filters.status.toLowerCase()))
       .filter((a) => {
         if (!q) return true;
         return (
@@ -60,6 +62,8 @@ export default function ActionsPage() {
   const onCreate = async (e) => {
     e.preventDefault();
     setError("");
+    setSuccess("");
+
     if (!form.title.trim()) {
       setError("Action title is required.");
       return;
@@ -68,12 +72,18 @@ export default function ActionsPage() {
       setError("Select a related defect.");
       return;
     }
+    if (form.due_date && !/^\d{4}-\d{2}-\d{2}$/.test(form.due_date)) {
+      setError("Due date must be in YYYY-MM-DD format.");
+      return;
+    }
+
     try {
       await createAction({
         ...form,
         defect_id: Number(form.defect_id),
       });
       setForm((f) => ({ ...f, title: "", owner: "", due_date: "", status: "Open" }));
+      setSuccess("Corrective action created successfully.");
       await refresh();
     } catch (err) {
       setError(err?.message || String(err));
@@ -82,8 +92,10 @@ export default function ActionsPage() {
 
   const onQuickUpdate = async (id, patch) => {
     setError("");
+    setSuccess("");
     try {
       await updateAction(id, patch);
+      setSuccess("Action updated.");
       await refresh();
     } catch (e) {
       setError(e?.message || String(e));
@@ -95,23 +107,30 @@ export default function ActionsPage() {
       <div className="pageHeader">
         <div>
           <h1>Actions</h1>
-          <p>Assign and track corrective actions tied to defects, including overdue escalation signals.</p>
+          <p>Assign and track corrective actions tied to defects, including overdue days and completion.</p>
         </div>
       </div>
 
       {error ? <div className="alert">{error}</div> : null}
+      {success ? (
+        <div className="card" style={{ borderColor: "rgba(16,185,129,0.28)", background: "rgba(16,185,129,0.06)" }}>
+          {success}
+        </div>
+      ) : null}
 
       <div className="card">
         <div className="row" style={{ marginBottom: 10 }}>
           <strong>New corrective action</strong>
           <div className="spacer" />
-          <span className="note">Link actions to a defect for end-to-end closure.</span>
+          <span className="note">At least one completed action is required before closing a defect.</span>
         </div>
 
         <form onSubmit={onCreate}>
           <div className="grid3">
             <div>
-              <label className="label" htmlFor="defect">Defect</label>
+              <label className="label" htmlFor="defect">
+                Defect
+              </label>
               <select
                 id="defect"
                 className="select"
@@ -128,7 +147,9 @@ export default function ActionsPage() {
             </div>
 
             <div>
-              <label className="label" htmlFor="title">Action title</label>
+              <label className="label" htmlFor="title">
+                Action title
+              </label>
               <input
                 id="title"
                 className="input"
@@ -139,7 +160,9 @@ export default function ActionsPage() {
             </div>
 
             <div>
-              <label className="label" htmlFor="owner">Owner</label>
+              <label className="label" htmlFor="owner">
+                Owner
+              </label>
               <input
                 id="owner"
                 className="input"
@@ -152,7 +175,9 @@ export default function ActionsPage() {
 
           <div className="grid3" style={{ marginTop: 10 }}>
             <div>
-              <label className="label" htmlFor="status">Status</label>
+              <label className="label" htmlFor="status">
+                Status
+              </label>
               <select
                 id="status"
                 className="select"
@@ -160,12 +185,16 @@ export default function ActionsPage() {
                 onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
               >
                 {ACTION_STATUSES.map((s) => (
-                  <option key={s} value={s}>{s}</option>
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="label" htmlFor="due">Due date</label>
+              <label className="label" htmlFor="due">
+                Due date (YYYY-MM-DD)
+              </label>
               <input
                 id="due"
                 type="date"
@@ -175,7 +204,9 @@ export default function ActionsPage() {
               />
             </div>
             <div className="row" style={{ alignItems: "end" }}>
-              <button className="btn btnPrimary" type="submit">Create action</button>
+              <button className="btn btnPrimary" type="submit">
+                Create action
+              </button>
             </div>
           </div>
         </form>
@@ -202,10 +233,14 @@ export default function ActionsPage() {
           >
             <option value="All">All statuses</option>
             {ACTION_STATUSES.map((s) => (
-              <option key={s} value={s}>{s}</option>
+              <option key={s} value={s}>
+                {s}
+              </option>
             ))}
           </select>
-          <button className="btn" onClick={refresh} type="button">Refresh</button>
+          <button className="btn" onClick={refresh} type="button">
+            Refresh
+          </button>
         </div>
 
         {loading ? <div className="note">Loading…</div> : null}
@@ -221,24 +256,30 @@ export default function ActionsPage() {
                 <th>Status</th>
                 <th>Due</th>
                 <th>Overdue</th>
-                <th style={{ width: 220 }}>Update</th>
+                <th style={{ width: 260 }}>Update</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="note">No actions match your filters.</td>
+                  <td colSpan={8} className="note">
+                    No actions match your filters.
+                  </td>
                 </tr>
               ) : (
                 filtered.map((a) => (
-                  <tr key={a.id}>
+                  <tr key={a.id} style={{ background: a.overdue ? "rgba(239,68,68,0.04)" : undefined }}>
                     <td>{a.id}</td>
                     <td className="note">#{a.defect_id ?? "—"}</td>
                     <td style={{ fontWeight: 700 }}>{a.title}</td>
                     <td>{a.owner || "—"}</td>
-                    <td><StatusPill value={a.status} /></td>
+                    <td>
+                      <StatusPill value={a.status} />
+                    </td>
                     <td>{formatDate(a.due_date)}</td>
-                    <td><OverduePill dueDate={a.due_date} status={a.status} /></td>
+                    <td>
+                      <OverduePill dueDate={a.due_date} status={a.status} />
+                    </td>
                     <td>
                       <div className="row">
                         <select
@@ -248,12 +289,17 @@ export default function ActionsPage() {
                           aria-label={`Set status for action ${a.id}`}
                         >
                           {ACTION_STATUSES.map((s) => (
-                            <option key={s} value={s}>{s}</option>
+                            <option key={s} value={s}>
+                              {s}
+                            </option>
                           ))}
                         </select>
                         <button className="btn" type="button" onClick={() => onQuickUpdate(a.id, { status: "Done" })}>
-                          Mark done
+                          Mark completed
                         </button>
+                      </div>
+                      <div className="note" style={{ marginTop: 6 }}>
+                        When all actions for a defect are completed, the backend auto-advances the defect toward verification.
                       </div>
                     </td>
                   </tr>

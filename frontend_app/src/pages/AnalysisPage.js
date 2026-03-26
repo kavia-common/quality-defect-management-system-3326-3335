@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { getAnalysisByDefect, listDefects, upsertAnalysis, updateDefect } from "../api/client";
+import { getAnalysisByDefect, listDefects, transitionDefect, upsertAnalysis } from "../api/client";
 import { StatusPill } from "../components/ui";
 
 function emptyWhys() {
@@ -8,11 +8,12 @@ function emptyWhys() {
 
 // PUBLIC_INTERFACE
 export default function AnalysisPage() {
-  /** Capture 5-Why analysis for a defect and optionally advance defect workflow. */
+  /** Capture 5-Why analysis for a defect and automatically drive workflow. */
   const [defects, setDefects] = useState([]);
   const [selectedDefectId, setSelectedDefectId] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
   const [error, setError] = useState("");
   const [savedMsg, setSavedMsg] = useState("");
 
@@ -85,22 +86,31 @@ export default function AnalysisPage() {
     setSaving(true);
     setError("");
     setSavedMsg("");
+
     try {
       if (!selectedDefectId) throw new Error("Select a defect first.");
-      const payload = {
-        whys: analysis.whys.map((w) => w.trim()).filter((w, idx, arr) => !(w === "" && idx < arr.length - 1)),
-        root_cause: analysis.root_cause.trim(),
-        containment: analysis.containment.trim(),
-      };
-      await upsertAnalysis(selectedDefectId, payload);
 
-      // Encourage workflow: if defect is Open, push to In Analysis when analysis is saved.
-      const def = defects.find((d) => String(d.id) === String(selectedDefectId));
-      if (def && (def.status === "Open" || !def.status)) {
-        await updateDefect(def.id, { status: "In Analysis" });
+      // Acceptance criteria: root cause must be filled for workflow progression.
+      if (!analysis.root_cause.trim()) {
+        throw new Error("Root cause statement is required. Please fill it before saving.");
       }
 
-      setSavedMsg("Saved.");
+      const payload = {
+        whys: analysis.whys.map((w) => w.trim()),
+        root_cause: analysis.root_cause.trim(),
+        containment: analysis.containment.trim(),
+        created_by: "ui",
+      };
+
+      await upsertAnalysis(selectedDefectId, payload);
+
+      // Acceptance criteria: automatically move defect to "In Analysis" after saving 5-Why.
+      // Backend already does this when defect is NEW/TRIAGED; we also attempt it for robustness.
+      if (selectedDefect && /(open|new|triaged)/i.test(selectedDefect.status || "")) {
+        await transitionDefect(selectedDefect.id, "IN_ANALYSIS", { actor: "ui", message: "Auto move to IN_ANALYSIS" });
+      }
+
+      setSavedMsg("Root cause analysis saved successfully. Defect moved to In Analysis (if applicable).");
       await refresh();
     } catch (e) {
       setError(e?.message || String(e));
@@ -109,13 +119,16 @@ export default function AnalysisPage() {
     }
   };
 
-  const onAdvanceToActionAssigned = async () => {
+  const onAdvanceToActions = async () => {
     setError("");
     setSavedMsg("");
     try {
       if (!selectedDefectId) throw new Error("Select a defect first.");
-      await updateDefect(selectedDefectId, { status: "Action Assigned" });
-      setSavedMsg("Defect moved to Action Assigned.");
+      if (!analysis.root_cause.trim()) {
+        throw new Error('Root cause is required before moving to "Actions In Progress".');
+      }
+      await transitionDefect(selectedDefectId, "ACTIONS_IN_PROGRESS", { actor: "ui", message: "Move to actions stage" });
+      setSavedMsg("Defect moved to Actions In Progress.");
       await refresh();
     } catch (e) {
       setError(e?.message || String(e));
@@ -127,12 +140,16 @@ export default function AnalysisPage() {
       <div className="pageHeader">
         <div>
           <h1>Analysis (5-Why)</h1>
-          <p>Perform root cause analysis by capturing up to five causal “whys”, plus containment and root cause summary.</p>
+          <p>Perform root cause analysis (required before progressing into actions/closure).</p>
         </div>
       </div>
 
       {error ? <div className="alert">{error}</div> : null}
-      {savedMsg ? <div className="card" style={{ borderColor: "rgba(16,185,129,0.28)", background: "rgba(16,185,129,0.06)" }}>{savedMsg}</div> : null}
+      {savedMsg ? (
+        <div className="card" style={{ borderColor: "rgba(16,185,129,0.28)", background: "rgba(16,185,129,0.06)" }}>
+          {savedMsg}
+        </div>
+      ) : null}
 
       <div className="card">
         <div className="row" style={{ marginBottom: 10 }}>
@@ -149,13 +166,10 @@ export default function AnalysisPage() {
 
         <div className="grid2">
           <div>
-            <label className="label" htmlFor="defect">Defect</label>
-            <select
-              id="defect"
-              className="select"
-              value={selectedDefectId}
-              onChange={(e) => loadForDefect(e.target.value)}
-            >
+            <label className="label" htmlFor="defect">
+              Defect
+            </label>
+            <select id="defect" className="select" value={selectedDefectId} onChange={(e) => loadForDefect(e.target.value)}>
               {defects.length === 0 ? <option value="">No defects available</option> : null}
               {defects.map((d) => (
                 <option key={d.id} value={String(d.id)}>
@@ -164,7 +178,7 @@ export default function AnalysisPage() {
               ))}
             </select>
             <div className="note" style={{ marginTop: 8 }}>
-              Tip: When analysis is saved, an Open defect is automatically moved to <strong>In Analysis</strong>.
+              After saving analysis, the defect is automatically moved to <strong>In Analysis</strong>.
             </div>
           </div>
 
@@ -188,7 +202,9 @@ export default function AnalysisPage() {
         <div className="grid2">
           {analysis.whys.map((v, idx) => (
             <div key={idx}>
-              <label className="label" htmlFor={`why-${idx}`}>Why {idx + 1}</label>
+              <label className="label" htmlFor={`why-${idx}`}>
+                Why {idx + 1}
+              </label>
               <input
                 id={`why-${idx}`}
                 className="input"
@@ -208,7 +224,9 @@ export default function AnalysisPage() {
 
         <div className="grid2" style={{ marginTop: 10 }}>
           <div>
-            <label className="label" htmlFor="containment">Containment (immediate)</label>
+            <label className="label" htmlFor="containment">
+              Containment (immediate)
+            </label>
             <textarea
               id="containment"
               className="textarea"
@@ -219,7 +237,9 @@ export default function AnalysisPage() {
             />
           </div>
           <div>
-            <label className="label" htmlFor="root">Root cause statement</label>
+            <label className="label" htmlFor="root">
+              Root cause statement (required)
+            </label>
             <textarea
               id="root"
               className="textarea"
@@ -228,19 +248,22 @@ export default function AnalysisPage() {
               onChange={(e) => setAnalysis((a) => ({ ...a, root_cause: e.target.value }))}
               placeholder="Clear root cause statement (system/process cause, not symptom)."
             />
+            <div className="note" style={{ marginTop: 8 }}>
+              Root cause must be filled before the defect can move into actions/closure.
+            </div>
           </div>
         </div>
 
         <div className="row" style={{ marginTop: 12 }}>
           <button className="btn btnPrimary" type="button" onClick={onSave} disabled={saving}>
-            {saving ? "Saving…" : "Save analysis"}
+            {saving ? "Saving…" : "Save root cause"}
           </button>
-          <button className="btn" type="button" onClick={onAdvanceToActionAssigned} disabled={!selectedDefectId}>
-            Move defect to Action Assigned
+          <button className="btn" type="button" onClick={onAdvanceToActions} disabled={!selectedDefectId}>
+            Move defect to Actions In Progress
           </button>
           <div className="spacer" />
           <span className="note">
-            Next: create actions in <strong>Actions</strong> and then close the defect when verified.
+            Next: create actions in <strong>Actions</strong>, complete them, then close the defect in <strong>Defects</strong>.
           </span>
         </div>
       </div>
