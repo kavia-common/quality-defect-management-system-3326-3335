@@ -20,8 +20,14 @@ function getEnv(name, fallback = "") {
 }
 
 function resolveApiBase() {
-  const apiBase = getEnv("REACT_APP_API_BASE").trim();
-  if (apiBase) return apiBase.replace(/\/*$/, "");
+  const apiBaseRaw = getEnv("REACT_APP_API_BASE").trim();
+  if (apiBaseRaw) {
+    const apiBase = apiBaseRaw.replace(/\/*$/, "");
+    // Accept either:
+    // - https://host:3001/api  (preferred)
+    // - https://host:3001      (we will append /api to avoid broken routes)
+    return /\/api$/i.test(apiBase) ? apiBase : `${apiBase}/api`;
+  }
 
   const backendUrl = getEnv("REACT_APP_BACKEND_URL").trim();
   if (backendUrl) return `${backendUrl.replace(/\/*$/, "")}/api`;
