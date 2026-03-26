@@ -1,7 +1,15 @@
 /**
  * Lightweight REST client for the Quality Defect Management frontend.
- * Uses REACT_APP_* environment variables for configuration and supports a
- * safe fallback mode (mock data) when the backend does not yet expose endpoints.
+ *
+ * Requirements enforced:
+ * - Connect React frontend to Django backend APIs.
+ * - Remove mock data fallback completely (so seeded backend data is rendered and issues are visible).
+ * - Log API base URL + responses in console for debugging/verification.
+ *
+ * Environment:
+ * - Prefer REACT_APP_API_BASE (expected: https://<host>:3001/api)
+ * - Else REACT_APP_BACKEND_URL + "/api"
+ * - Else "/api" (only works if a reverse proxy routes /api -> backend)
  */
 
 const DEFAULT_TIMEOUT_MS = 20000;
@@ -12,67 +20,21 @@ function getEnv(name, fallback = "") {
 }
 
 function resolveApiBase() {
-  // Prefer explicit API base; otherwise fall back to backend URL + "/api"
   const apiBase = getEnv("REACT_APP_API_BASE").trim();
-  if (apiBase) return apiBase.replace(/\/+$/, "");
+  if (apiBase) return apiBase.replace(/\/*$/, "");
 
   const backendUrl = getEnv("REACT_APP_BACKEND_URL").trim();
-  if (backendUrl) return `${backendUrl.replace(/\/+$/, "")}/api`;
+  if (backendUrl) return `${backendUrl.replace(/\/*$/, "")}/api`;
 
-  // Same-origin fallback (useful if proxied)
   return "/api";
 }
 
 const API_BASE = resolveApiBase();
 
-// Cache backend reachability to avoid repeated health calls.
-// null = unknown, true/false = known reachability
-let backendReachableCache = null;
-let backendReachableCheckedAtMs = 0;
-const BACKEND_REACHABLE_TTL_MS = 15000;
-
-async function isBackendReachable() {
-  const now = Date.now();
-  if (backendReachableCache !== null && now - backendReachableCheckedAtMs < BACKEND_REACHABLE_TTL_MS) {
-    return backendReachableCache;
-  }
-
-  try {
-    const res = await fetch(`${API_BASE}/health/`, { method: "GET" });
-    backendReachableCache = !!res.ok;
-  } catch {
-    backendReachableCache = false;
-  } finally {
-    backendReachableCheckedAtMs = now;
-  }
-  return backendReachableCache;
-}
-
-async function shouldAllowMockFallback() {
-  // Explicit escape hatch for demos/offline mode.
-  const forced = getEnv("REACT_APP_ALLOW_MOCK_FALLBACK", "").trim().toLowerCase();
-  if (forced === "1" || forced === "true" || forced === "yes") return true;
-
-  // Default: allow mock only when backend is not reachable.
-  return !(await isBackendReachable());
-}
-
-/**
- * Try candidate endpoints in order until one responds with 2xx.
- * Useful because backend routes may differ slightly across templates.
- */
-async function tryFirstOk(paths, init) {
-  let lastErr = null;
-  for (const p of paths) {
-    try {
-      const res = await fetch(`${API_BASE}${p}`, init);
-      if (res.ok) return { res, path: p };
-      lastErr = new Error(`HTTP ${res.status} for ${p}`);
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  throw lastErr ?? new Error("No endpoint responded");
+function debugLog(...args) {
+  if (process.env.NODE_ENV === "production") return;
+  // eslint-disable-next-line no-console
+  console.log("[qdm-api]", ...args);
 }
 
 async function parseJson(res) {
@@ -88,9 +50,12 @@ async function parseJson(res) {
 async function requestJson(method, path, body) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  const url = `${API_BASE}${path}`;
 
   try {
-    const res = await fetch(`${API_BASE}${path}`, {
+    debugLog("request", { method, url, body });
+
+    const res = await fetch(url, {
       method,
       headers: {
         "Content-Type": "application/json",
@@ -100,6 +65,10 @@ async function requestJson(method, path, body) {
     });
 
     const data = await parseJson(res);
+
+    // Log a compact form of the response (for “Confirm data is received and rendered” requirement).
+    debugLog("response", { method, url, status: res.status, ok: res.ok, data });
+
     if (!res.ok) {
       const msg = (data && (data.detail || data.error)) || res.statusText || "Request failed";
       const err = new Error(msg);
@@ -107,6 +76,7 @@ async function requestJson(method, path, body) {
       err.data = data;
       throw err;
     }
+
     return data;
   } finally {
     clearTimeout(timeout);
@@ -115,9 +85,7 @@ async function requestJson(method, path, body) {
 
 function normalizeDateToYmd(value) {
   if (!value) return "";
-  // If it's already YYYY-MM-DD, keep it.
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-  // Try parsing; fallback to raw string.
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return String(value);
   return d.toISOString().slice(0, 10);
@@ -139,74 +107,7 @@ function isOverdue(dueDateStr, status) {
   return daysOverdue(dueDateStr, status) > 0;
 }
 
-/**
- * Domain helpers.
- * We prefer the Django backend endpoints.
- *
- * IMPORTANT:
- * Mock fallback is only allowed when the backend is not reachable (health check fails).
- * If the backend is reachable but an endpoint errors/misbehaves, we should surface the error
- * rather than silently hiding it with mock data (otherwise seeded demo data appears "missing").
- */
-
-const mockStore = {
-  defects: [
-    {
-      id: 1,
-      title: "Scratch on painted panel",
-      severity: "Major",
-      status: "Open",
-      owner: "Quality",
-      due_date: normalizeDateToYmd(new Date(Date.now() + 3 * 86400000).toISOString()),
-      created_at: new Date(Date.now() - 2 * 86400000).toISOString(),
-      description: "Visible scratch found during final inspection.",
-    },
-    {
-      id: 2,
-      title: "Incorrect label applied",
-      severity: "Minor",
-      status: "In Analysis",
-      owner: "Packaging",
-      due_date: normalizeDateToYmd(new Date(Date.now() - 1 * 86400000).toISOString()),
-      created_at: new Date(Date.now() - 6 * 86400000).toISOString(),
-      description: "Wrong SKU label applied to carton batch.",
-    },
-  ],
-  actions: [
-    {
-      id: 1,
-      defect_id: 2,
-      title: "Add label verification step",
-      owner: "Ops",
-      status: "Open",
-      due_date: normalizeDateToYmd(new Date(Date.now() + 5 * 86400000).toISOString()),
-      created_at: new Date(Date.now() - 1 * 86400000).toISOString(),
-    },
-  ],
-  analyses: [
-    {
-      id: 1,
-      defect_id: 2,
-      whys: [
-        "Label printed with wrong template",
-        "Template selection not controlled",
-        "Work instruction unclear",
-        "Training incomplete",
-        "No audit for labeling process",
-      ],
-      root_cause: "Labeling work instruction and controls insufficient",
-      containment: "Quarantine affected cartons and re-label",
-      created_at: new Date(Date.now() - 1 * 86400000).toISOString(),
-    },
-  ],
-};
-
-function nextId(items) {
-  return items.reduce((m, it) => Math.max(m, Number(it.id) || 0), 0) + 1;
-}
-
 function mapBackendDefect(d) {
-  // Backend defect schema uses: severity/priority values like "medium/high", status is nested object.
   const statusCode = d?.status?.code || d?.status_code || d?.status || "";
   const statusName = d?.status?.name || d?.status_name || "";
   const displayStatus = statusName || statusCode || "Open";
@@ -221,7 +122,7 @@ function mapBackendDefect(d) {
     status_code: statusCode,
     status: displayStatus,
 
-    // Additional defect logging fields (acceptance criteria)
+    // Acceptance criteria defect logging fields
     part_number: d.part_number ?? "",
     defect_type: d.defect_type ?? "",
     quantity_affected: d.quantity_affected ?? null,
@@ -260,7 +161,7 @@ function mapBackendAction(a) {
 
 // PUBLIC_INTERFACE
 export async function apiHealthCheck() {
-  /** Returns backend health info if available. */
+  /** Returns backend health info (and exposes resolved apiBase). */
   try {
     const data = await requestJson("GET", "/health/", null);
     return { ok: true, data, apiBase: API_BASE };
@@ -271,34 +172,19 @@ export async function apiHealthCheck() {
 
 // PUBLIC_INTERFACE
 export async function listDefects() {
-  /** List defects (backend if available; mock only if backend is unreachable). */
-  const candidates = ["/defects/"];
-  try {
-    const { res } = await tryFirstOk(candidates, { method: "GET" });
-    const data = await parseJson(res);
-    const items = Array.isArray(data) ? data : data?.results || [];
-    return items.map(mapBackendDefect).map((d) => ({
-      ...d,
-      overdue: isOverdue(d.due_date, d.status),
-      overdue_days: daysOverdue(d.due_date, d.status),
-    }));
-  } catch (e) {
-    if (await shouldAllowMockFallback()) {
-      return mockStore.defects.map((d) => ({
-        ...d,
-        due_date: normalizeDateToYmd(d.due_date),
-        overdue: isOverdue(d.due_date, d.status),
-        overdue_days: daysOverdue(d.due_date, d.status),
-      }));
-    }
-    throw e;
-  }
+  /** List defects from backend (no mock fallback). */
+  const data = await requestJson("GET", "/defects/", null);
+  const items = Array.isArray(data) ? data : data?.results || [];
+  return items.map(mapBackendDefect).map((d) => ({
+    ...d,
+    overdue: isOverdue(d.due_date, d.status),
+    overdue_days: daysOverdue(d.due_date, d.status),
+  }));
 }
 
 // PUBLIC_INTERFACE
 export async function createDefect(payload) {
-  /** Create a defect (backend if available, otherwise mock). */
-  // Backend uses: title, description, severity, priority, assigned_to, due_date (datetime), etc.
+  /** Create a defect in backend. */
   const backendPayload = {
     title: payload.title,
     description: payload.description || "",
@@ -306,30 +192,22 @@ export async function createDefect(payload) {
     priority: "medium",
     assigned_to: payload.owner || "",
     due_date: payload.due_date ? `${normalizeDateToYmd(payload.due_date)}T00:00:00Z` : null,
+
+    // Optional acceptance criteria logging fields (backend supports these)
+    part_number: payload.part_number || "",
+    defect_type: payload.defect_type || "",
+    quantity_affected: payload.quantity_affected ?? null,
+    production_line: payload.production_line || "",
+    shift: payload.shift || "",
   };
 
-  try {
-    const data = await requestJson("POST", "/defects/", backendPayload);
-    return mapBackendDefect(data);
-  } catch {
-    const now = new Date().toISOString();
-    const item = {
-      id: nextId(mockStore.defects),
-      created_at: now,
-      status: "Open",
-      ...payload,
-      due_date: normalizeDateToYmd(payload.due_date),
-    };
-    mockStore.defects.unshift(item);
-    return item;
-  }
+  const data = await requestJson("POST", "/defects/", backendPayload);
+  return mapBackendDefect(data);
 }
 
 // PUBLIC_INTERFACE
 export async function updateDefect(defectId, patch) {
-  /** Update a defect (backend if available, otherwise mock). */
-  // Frontend patch may send { owner, due_date, ... }.
-  // Backend expects assigned_to and due_date as datetime (or null).
+  /** Update a defect in backend. */
   const backendPatch = {};
   if (patch.title !== undefined) backendPatch.title = patch.title;
   if (patch.description !== undefined) backendPatch.description = patch.description;
@@ -338,78 +216,36 @@ export async function updateDefect(defectId, patch) {
     backendPatch.due_date = patch.due_date ? `${normalizeDateToYmd(patch.due_date)}T00:00:00Z` : null;
   }
 
-  try {
-    const data = await requestJson("PATCH", `/defects/${defectId}/`, backendPatch);
-    return mapBackendDefect(data);
-  } catch {
-    const idx = mockStore.defects.findIndex((d) => String(d.id) === String(defectId));
-    if (idx >= 0) {
-      mockStore.defects[idx] = { ...mockStore.defects[idx], ...patch, due_date: normalizeDateToYmd(patch.due_date) };
-      return mockStore.defects[idx];
-    }
-    throw new Error("Defect not found");
-  }
+  const data = await requestJson("PATCH", `/defects/${defectId}/`, backendPatch);
+  return mapBackendDefect(data);
 }
 
 // PUBLIC_INTERFACE
 export async function transitionDefect(defectId, toStatusCode, { actor = "", message = "" } = {}) {
-  /** Transition a defect status using backend workflow rules; fallback updates mock status string. */
-  try {
-    const data = await requestJson("POST", `/defects/${defectId}/transition/`, {
-      to_status_code: toStatusCode,
-      actor,
-      message,
-    });
-    return mapBackendDefect(data);
-  } catch (e) {
-    // Fallback: update mock based on a simple mapping.
-    const codeToLabel = {
-      NEW: "Open",
-      IN_ANALYSIS: "In Analysis",
-      ACTIONS_IN_PROGRESS: "Actions In Progress",
-      CLOSED: "Closed",
-      VERIFIED: "Verified",
-      PENDING_VERIFICATION: "Pending Verification",
-      TRIAGED: "Open",
-    };
-    const idx = mockStore.defects.findIndex((d) => String(d.id) === String(defectId));
-    if (idx >= 0) {
-      mockStore.defects[idx] = { ...mockStore.defects[idx], status: codeToLabel[toStatusCode] || toStatusCode };
-      return mockStore.defects[idx];
-    }
-    throw e;
-  }
+  /** Transition a defect status using backend workflow rules. */
+  const data = await requestJson("POST", `/defects/${defectId}/transition/`, {
+    to_status_code: toStatusCode,
+    actor,
+    message,
+  });
+  return mapBackendDefect(data);
 }
 
 // PUBLIC_INTERFACE
 export async function listActions() {
-  /** List corrective actions (backend if available; mock only if backend is unreachable). */
-  const candidates = ["/actions/"];
-  try {
-    const { res } = await tryFirstOk(candidates, { method: "GET" });
-    const data = await parseJson(res);
-    const items = Array.isArray(data) ? data : data?.results || [];
-    return items.map(mapBackendAction).map((a) => ({
-      ...a,
-      overdue: isOverdue(a.due_date, a.status),
-      overdue_days: daysOverdue(a.due_date, a.status),
-    }));
-  } catch (e) {
-    if (await shouldAllowMockFallback()) {
-      return mockStore.actions.map((a) => ({
-        ...a,
-        due_date: normalizeDateToYmd(a.due_date),
-        overdue: isOverdue(a.due_date, a.status),
-        overdue_days: daysOverdue(a.due_date, a.status),
-      }));
-    }
-    throw e;
-  }
+  /** List corrective actions from backend (no mock fallback). */
+  const data = await requestJson("GET", "/actions/", null);
+  const items = Array.isArray(data) ? data : data?.results || [];
+  return items.map(mapBackendAction).map((a) => ({
+    ...a,
+    overdue: isOverdue(a.due_date, a.status),
+    overdue_days: daysOverdue(a.due_date, a.status),
+  }));
 }
 
 // PUBLIC_INTERFACE
 export async function createAction(payload) {
-  /** Create corrective action (backend if available, otherwise mock). */
+  /** Create corrective action in backend. */
   const backendPayload = {
     defect: payload.defect_id, // backend uses FK field name `defect`
     title: payload.title,
@@ -418,32 +254,18 @@ export async function createAction(payload) {
     status: "open",
   };
 
-  try {
-    const data = await requestJson("POST", "/actions/", backendPayload);
-    return mapBackendAction(data);
-  } catch {
-    const now = new Date().toISOString();
-    const item = {
-      id: nextId(mockStore.actions),
-      created_at: now,
-      status: "Open",
-      ...payload,
-      due_date: normalizeDateToYmd(payload.due_date),
-    };
-    mockStore.actions.unshift(item);
-    return item;
-  }
+  const data = await requestJson("POST", "/actions/", backendPayload);
+  return mapBackendAction(data);
 }
 
 // PUBLIC_INTERFACE
 export async function updateAction(actionId, patch) {
-  /** Update corrective action (backend if available, otherwise mock). */
+  /** Update corrective action in backend. */
   const backendPatch = {};
   if (patch.title !== undefined) backendPatch.title = patch.title;
   if (patch.owner !== undefined) backendPatch.owner = patch.owner;
   if (patch.status !== undefined) {
     const s = patch.status.toString().toLowerCase();
-    // Normalize common UI statuses into backend enum values.
     const mapping = {
       open: "open",
       "in progress": "in_progress",
@@ -459,45 +281,31 @@ export async function updateAction(actionId, patch) {
     backendPatch.due_date = patch.due_date ? `${normalizeDateToYmd(patch.due_date)}T00:00:00Z` : null;
   }
 
-  try {
-    const data = await requestJson("PATCH", `/actions/${actionId}/`, backendPatch);
-    return mapBackendAction(data);
-  } catch {
-    const idx = mockStore.actions.findIndex((a) => String(a.id) === String(actionId));
-    if (idx >= 0) {
-      mockStore.actions[idx] = { ...mockStore.actions[idx], ...patch, due_date: normalizeDateToYmd(patch.due_date) };
-      return mockStore.actions[idx];
-    }
-    throw new Error("Action not found");
-  }
+  const data = await requestJson("PATCH", `/actions/${actionId}/`, backendPatch);
+  return mapBackendAction(data);
 }
 
 // PUBLIC_INTERFACE
 export async function getAnalysisByDefect(defectId) {
-  /** Get 5-Why analysis by defect (backend if available, otherwise mock). */
-  try {
-    const data = await requestJson("GET", `/defects/${defectId}/`, null);
-    const d = mapBackendDefect(data);
-    const five = d.five_why;
-    if (!five) return null;
-    return {
-      id: five.id,
-      defect_id: defectId,
-      whys: [five.why1, five.why2, five.why3, five.why4, five.why5].filter((x) => (x || "").trim() !== ""),
-      root_cause: five.root_cause || "",
-      containment: five.problem_statement || "", // older UI used containment; backend has problem_statement.
-      created_at: five.created_at,
-      updated_at: five.updated_at,
-    };
-  } catch {
-    return mockStore.analyses.find((a) => String(a.defect_id) === String(defectId)) ?? null;
-  }
+  /** Get 5-Why analysis by defect from backend (via defect detail). */
+  const data = await requestJson("GET", `/defects/${defectId}/`, null);
+  const d = mapBackendDefect(data);
+  const five = d.five_why;
+  if (!five) return null;
+  return {
+    id: five.id,
+    defect_id: defectId,
+    whys: [five.why1, five.why2, five.why3, five.why4, five.why5].filter((x) => (x || "").trim() !== ""),
+    root_cause: five.root_cause || "",
+    containment: five.problem_statement || "",
+    created_at: five.created_at,
+    updated_at: five.updated_at,
+  };
 }
 
 // PUBLIC_INTERFACE
 export async function upsertAnalysis(defectId, payload) {
-  /** Create or update 5-Why analysis (backend if available, otherwise mock). */
-  // Backend endpoint is PUT /five-whys/by-defect/{defect_id}/
+  /** Create or update 5-Why analysis in backend. */
   const backendPayload = {
     problem_statement: payload.containment || "",
     why1: payload.whys?.[0] || "",
@@ -509,129 +317,34 @@ export async function upsertAnalysis(defectId, payload) {
     created_by: payload.created_by || "",
   };
 
-  try {
-    const data = await requestJson("PUT", `/five-whys/by-defect/${defectId}/`, backendPayload);
-    return data ?? payload;
-  } catch {
-    const existingIdx = mockStore.analyses.findIndex((a) => String(a.defect_id) === String(defectId));
-    const now = new Date().toISOString();
-    const item = {
-      id: existingIdx >= 0 ? mockStore.analyses[existingIdx].id : nextId(mockStore.analyses),
-      defect_id: Number(defectId),
-      created_at: existingIdx >= 0 ? mockStore.analyses[existingIdx].created_at : now,
-      ...payload,
-    };
-    if (existingIdx >= 0) mockStore.analyses[existingIdx] = item;
-    else mockStore.analyses.unshift(item);
-    return item;
-  }
+  const data = await requestJson("PUT", `/five-whys/by-defect/${defectId}/`, backendPayload);
+  return data ?? payload;
 }
 
 // PUBLIC_INTERFACE
 export async function getDashboard() {
-  /** Returns dashboard metrics (backend if available; fallback only if backend is unreachable). */
-  const candidates = ["/dashboard/"];
-  try {
-    const { res } = await tryFirstOk(candidates, { method: "GET" });
-    const data = await parseJson(res);
-    if (data) return data;
-  } catch (e) {
-    if (!(await shouldAllowMockFallback())) {
-      throw e;
-    }
-    // else ignore and compute locally from fallback data
-  }
-
-  const defects = await listDefects();
-  const actions = await listActions();
-
-  const closedDefects = defects.filter((d) => /(closed|verified)/i.test(d.status)).length;
-  const openDefects = defects.length - closedDefects;
-  const overdueDefects = defects.filter((d) => isOverdue(d.due_date, d.status)).length;
-
-  const doneActions = actions.filter((a) => /(done|closed|verified)/i.test(a.status)).length;
-  const openActions = actions.length - doneActions;
-  const overdueActions = actions.filter((a) => isOverdue(a.due_date, a.status)).length;
-
-  const byStatus = defects.reduce((acc, d) => {
-    const k = d.status || "Unknown";
-    acc[k] = (acc[k] || 0) + 1;
-    return acc;
-  }, {});
-
-  const bySeverity = defects.reduce((acc, d) => {
-    const k = d.severity || "Unknown";
-    acc[k] = (acc[k] || 0) + 1;
-    return acc;
-  }, {});
-
-  return {
-    total_defects: defects.length,
-    open_defects: openDefects,
-    closed_defects: closedDefects,
-    overdue_defects: overdueDefects,
-    open_actions: openActions,
-    overdue_actions: overdueActions,
-    done_actions: doneActions,
-    actions_due_soon: 0,
-    by_status: byStatus,
-    by_severity: bySeverity,
-  };
+  /** Returns dashboard metrics from backend (no mock fallback). */
+  return requestJson("GET", "/dashboard/", null);
 }
 
 // PUBLIC_INTERFACE
 export async function exportCsv() {
   /**
-   * Export CSV from backend if available; otherwise generate CSV on client.
+   * Export defects as CSV from backend (required).
    * Returns { filename, blob, source }.
    */
-  const candidates = ["/defects/export-csv/"];
-  try {
-    const { res } = await tryFirstOk(candidates, { method: "GET" });
-    const blob = await res.blob();
-    // Backend provides filename=defects.csv but browsers don't reliably expose it; use a deterministic name.
-    return { filename: "defects.csv", blob, source: "backend" };
-  } catch {
-    // Frontend fallback generation from current data
-    const defects = await listDefects();
-    const header = [
-      "id",
-      "title",
-      "severity",
-      "priority",
-      "status",
-      "owner",
-      "part_number",
-      "defect_type",
-      "quantity_affected",
-      "production_line",
-      "shift",
-      "due_date",
-      "overdue_days",
-      "description",
-    ];
-    const escape = (v) => {
-      const s = (v ?? "").toString();
-      const needs = /[",\n]/.test(s);
-      const inner = s.replace(/"/g, '""');
-      return needs ? `"${inner}"` : inner;
-    };
-    const rows = defects.map((d) =>
-      header
-        .map((h) => {
-          if (h === "owner") return escape(d.assigned_to || d.owner || "");
-          if (h === "status") return escape(d.status || "");
-          return escape(d[h]);
-        })
-        .join(",")
-    );
-    const csv = [header.join(","), ...rows].join("\n");
-    return {
-      filename: "defects.csv",
-      blob: new Blob([csv], { type: "text/csv;charset=utf-8" }),
-      source: "frontend",
-    };
+  const url = `${API_BASE}/defects/export-csv/`;
+  debugLog("request", { method: "GET", url });
+
+  const res = await fetch(url, { method: "GET" });
+  if (!res.ok) {
+    const data = await parseJson(res);
+    debugLog("response-error", { method: "GET", url, status: res.status, data });
+    const msg = (data && (data.detail || data.error)) || res.statusText || "CSV export failed";
+    throw new Error(msg);
   }
+  const blob = await res.blob();
+  return { filename: "defects.csv", blob, source: "backend" };
 }
 
 // PUBLIC_INTERFACE

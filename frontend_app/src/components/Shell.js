@@ -58,10 +58,10 @@ export default function Shell() {
           </span>
           <span
             className="badge"
-            title={`API base: ${health.apiBase || ""}`}
+            title={`API base: ${health.apiBase || ""}${health.ok === false ? ` • error: ${health.error || ""}` : ""}`}
             style={{ borderColor: health.ok ? "rgba(16,185,129,0.35)" : "rgba(239,68,68,0.35)" }}
           >
-            API: {health.ok ? "Connected" : "Fallback"}
+            API: {health.ok ? "Connected" : "Disconnected"}
           </span>
         </div>
       </header>
@@ -78,8 +78,8 @@ export default function Shell() {
           <div className="navSectionTitle">Notes</div>
           <div className="card" style={{ padding: 12 }}>
             <div className="note">
-              Backend OpenAPI currently documents only <code>/api/health/</code>. The UI will operate
-              with mock data until the remaining endpoints are available.
+              This UI is backend-driven (no mock data). Ensure <code>REACT_APP_API_BASE</code> points to the Django API,
+              e.g. <code>https://…:3001/api</code>.
             </div>
           </div>
         </aside>
