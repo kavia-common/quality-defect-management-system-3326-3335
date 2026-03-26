@@ -25,6 +25,38 @@ function resolveApiBase() {
 
 const API_BASE = resolveApiBase();
 
+// Cache backend reachability to avoid repeated health calls.
+// null = unknown, true/false = known reachability
+let backendReachableCache = null;
+let backendReachableCheckedAtMs = 0;
+const BACKEND_REACHABLE_TTL_MS = 15000;
+
+async function isBackendReachable() {
+  const now = Date.now();
+  if (backendReachableCache !== null && now - backendReachableCheckedAtMs < BACKEND_REACHABLE_TTL_MS) {
+    return backendReachableCache;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/health/`, { method: "GET" });
+    backendReachableCache = !!res.ok;
+  } catch {
+    backendReachableCache = false;
+  } finally {
+    backendReachableCheckedAtMs = now;
+  }
+  return backendReachableCache;
+}
+
+async function shouldAllowMockFallback() {
+  // Explicit escape hatch for demos/offline mode.
+  const forced = getEnv("REACT_APP_ALLOW_MOCK_FALLBACK", "").trim().toLowerCase();
+  if (forced === "1" || forced === "true" || forced === "yes") return true;
+
+  // Default: allow mock only when backend is not reachable.
+  return !(await isBackendReachable());
+}
+
 /**
  * Try candidate endpoints in order until one responds with 2xx.
  * Useful because backend routes may differ slightly across templates.
@@ -109,8 +141,12 @@ function isOverdue(dueDateStr, status) {
 
 /**
  * Domain helpers.
- * We prefer the Django backend endpoints, but keep fallback mocks so the UI still works
- * if the backend is unavailable.
+ * We prefer the Django backend endpoints.
+ *
+ * IMPORTANT:
+ * Mock fallback is only allowed when the backend is not reachable (health check fails).
+ * If the backend is reachable but an endpoint errors/misbehaves, we should surface the error
+ * rather than silently hiding it with mock data (otherwise seeded demo data appears "missing").
  */
 
 const mockStore = {
@@ -235,7 +271,7 @@ export async function apiHealthCheck() {
 
 // PUBLIC_INTERFACE
 export async function listDefects() {
-  /** List defects (backend if available, otherwise mock). */
+  /** List defects (backend if available; mock only if backend is unreachable). */
   const candidates = ["/defects/"];
   try {
     const { res } = await tryFirstOk(candidates, { method: "GET" });
@@ -246,13 +282,16 @@ export async function listDefects() {
       overdue: isOverdue(d.due_date, d.status),
       overdue_days: daysOverdue(d.due_date, d.status),
     }));
-  } catch {
-    return mockStore.defects.map((d) => ({
-      ...d,
-      due_date: normalizeDateToYmd(d.due_date),
-      overdue: isOverdue(d.due_date, d.status),
-      overdue_days: daysOverdue(d.due_date, d.status),
-    }));
+  } catch (e) {
+    if (await shouldAllowMockFallback()) {
+      return mockStore.defects.map((d) => ({
+        ...d,
+        due_date: normalizeDateToYmd(d.due_date),
+        overdue: isOverdue(d.due_date, d.status),
+        overdue_days: daysOverdue(d.due_date, d.status),
+      }));
+    }
+    throw e;
   }
 }
 
@@ -344,7 +383,7 @@ export async function transitionDefect(defectId, toStatusCode, { actor = "", mes
 
 // PUBLIC_INTERFACE
 export async function listActions() {
-  /** List corrective actions (backend if available, otherwise mock). */
+  /** List corrective actions (backend if available; mock only if backend is unreachable). */
   const candidates = ["/actions/"];
   try {
     const { res } = await tryFirstOk(candidates, { method: "GET" });
@@ -355,13 +394,16 @@ export async function listActions() {
       overdue: isOverdue(a.due_date, a.status),
       overdue_days: daysOverdue(a.due_date, a.status),
     }));
-  } catch {
-    return mockStore.actions.map((a) => ({
-      ...a,
-      due_date: normalizeDateToYmd(a.due_date),
-      overdue: isOverdue(a.due_date, a.status),
-      overdue_days: daysOverdue(a.due_date, a.status),
-    }));
+  } catch (e) {
+    if (await shouldAllowMockFallback()) {
+      return mockStore.actions.map((a) => ({
+        ...a,
+        due_date: normalizeDateToYmd(a.due_date),
+        overdue: isOverdue(a.due_date, a.status),
+        overdue_days: daysOverdue(a.due_date, a.status),
+      }));
+    }
+    throw e;
   }
 }
 
@@ -487,14 +529,17 @@ export async function upsertAnalysis(defectId, payload) {
 
 // PUBLIC_INTERFACE
 export async function getDashboard() {
-  /** Returns dashboard metrics (backend if available, otherwise computed from defects/actions). */
+  /** Returns dashboard metrics (backend if available; fallback only if backend is unreachable). */
   const candidates = ["/dashboard/"];
   try {
     const { res } = await tryFirstOk(candidates, { method: "GET" });
     const data = await parseJson(res);
     if (data) return data;
-  } catch {
-    // ignore
+  } catch (e) {
+    if (!(await shouldAllowMockFallback())) {
+      throw e;
+    }
+    // else ignore and compute locally from fallback data
   }
 
   const defects = await listDefects();
