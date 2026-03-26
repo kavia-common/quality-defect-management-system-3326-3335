@@ -139,8 +139,8 @@ export default function AnalysisPage() {
     <div>
       <div className="pageHeader">
         <div>
-          <h1>Analysis (5-Why)</h1>
-          <p>Perform root cause analysis (required before progressing into actions/closure).</p>
+          <h1>Root Cause Analysis (5-Why)</h1>
+          <p>Perform Root Cause Analysis (required before progressing into actions/closure).</p>
         </div>
       </div>
 

@@ -184,6 +184,14 @@ function mapBackendDefect(d) {
     priority: d.priority ?? "",
     status_code: statusCode,
     status: displayStatus,
+
+    // Additional defect logging fields (acceptance criteria)
+    part_number: d.part_number ?? "",
+    defect_type: d.defect_type ?? "",
+    quantity_affected: d.quantity_affected ?? null,
+    production_line: d.production_line ?? "",
+    shift: d.shift ?? "",
+
     reported_by: d.reported_by ?? "",
     assigned_to: d.assigned_to ?? "",
     area: d.area ?? "",
@@ -548,6 +556,11 @@ export async function exportCsv() {
       "priority",
       "status",
       "owner",
+      "part_number",
+      "defect_type",
+      "quantity_affected",
+      "production_line",
+      "shift",
       "due_date",
       "overdue_days",
       "description",

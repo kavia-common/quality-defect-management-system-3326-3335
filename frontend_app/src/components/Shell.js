@@ -72,7 +72,7 @@ export default function Shell() {
           <NavItem to="/" icon="D" label="Dashboard" />
           <NavItem to="/defects" icon="Df" label="Defects" />
           <NavItem to="/actions" icon="Ac" label="Actions" />
-          <NavItem to="/analysis" icon="5W" label="Analysis (5-Why)" />
+          <NavItem to="/analysis" icon="5W" label="Root Cause Analysis" />
           <NavItem to="/export" icon="⤓" label="Export (CSV)" />
 
           <div className="navSectionTitle">Notes</div>
