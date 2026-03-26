@@ -341,12 +341,30 @@ export async function exportCsv() {
    *
    * Notes:
    * - Uses Content-Disposition filename if present.
-   * - Includes credentials for deployments that rely on cookie-based auth.
+   * - Avoids forcing credentialed CORS requests by default. Credentialed cross-origin
+   *   fetches require strict backend CORS settings and often surface as "Failed to fetch".
    */
   const url = `${API_BASE}/defects/export-csv/`;
   debugLog("request", { method: "GET", url });
 
-  const res = await fetch(url, { method: "GET", credentials: "include" });
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "GET",
+      mode: "cors",
+      // Use same-origin by default; this prevents unnecessary credentialed CORS.
+      // If a deployment later needs cookie auth across origins, switch to "include"
+      // together with backend CORS_ALLOW_CREDENTIALS + explicit allowed origins.
+      credentials: "same-origin",
+    });
+  } catch (e) {
+    // Browser-level network/CORS failures land here (no HTTP status available).
+    debugLog("response-error", { method: "GET", url, error: e?.message || String(e) });
+    throw new Error(
+      "CSV export failed to reach the API. This is usually a network/CORS/API base URL issue. " +
+        `Resolved API base is: ${API_BASE}`
+    );
+  }
 
   if (!res.ok) {
     // Backend errors may come back as JSON (DRF) or HTML (Django debug / proxy).
@@ -373,7 +391,7 @@ export async function exportCsv() {
   // Prefer backend-provided filename (Content-Disposition).
   let filename = "defects.csv";
   const cd = res.headers.get("content-disposition") || "";
-  const m = cd.match(/filename\*?=(?:UTF-8'')?"?([^\";]+)"?/i);
+  const m = cd.match(/filename\*?=(?:UTF-8'')?\"?([^\";]+)\"?/i);
   if (m && m[1]) filename = decodeURIComponent(m[1]);
 
   return { filename, blob, source: "backend" };
