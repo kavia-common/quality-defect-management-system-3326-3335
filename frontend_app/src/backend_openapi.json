@@ -1,1 +1,968 @@
-{"swagger": "2.0", "info": {"title": "My API", "description": "API Docs", "version": "v1"}, "host": "vscode-internal-12473-beta.beta01.cloud.kavia.ai:3001", "schemes": ["https"], "basePath": "/api", "consumes": ["application/json"], "produces": ["application/json"], "securityDefinitions": {"Basic": {"type": "basic"}}, "security": [{"Basic": []}], "paths": {"/health/": {"get": {"operationId": "health_list", "description": "", "parameters": [], "responses": {"200": {"description": ""}}, "tags": ["health"]}, "parameters": []}}, "definitions": {}}
+swagger: '2.0'
+info:
+  title: Quality Defect Management API
+  description: REST API for tracking quality defects, root cause (5-Why), corrective
+    actions, workflow, metrics, and export.
+  version: v1
+host: vscode-internal-35347-beta.beta01.cloud.kavia.ai
+schemes:
+- https
+basePath: /api
+consumes:
+- application/json
+produces:
+- application/json
+securityDefinitions:
+  Basic:
+    type: basic
+security:
+- Basic: []
+paths:
+  /actions/:
+    get:
+      operationId: actions_list
+      summary: CRUD for corrective actions with overdue helpers.
+      description: |-
+        Acceptance rules:
+        - Allow marking action as completed (status DONE, completed_at auto-set).
+        - When all actions for a defect are completed, defect status advances automatically.
+      parameters: []
+      responses:
+        '200':
+          description: ''
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/CorrectiveAction'
+      tags:
+      - actions
+    post:
+      operationId: actions_create
+      summary: CRUD for corrective actions with overdue helpers.
+      description: |-
+        Acceptance rules:
+        - Allow marking action as completed (status DONE, completed_at auto-set).
+        - When all actions for a defect are completed, defect status advances automatically.
+      parameters:
+      - name: data
+        in: body
+        required: true
+        schema:
+          $ref: '#/definitions/CorrectiveAction'
+      responses:
+        '201':
+          description: ''
+          schema:
+            $ref: '#/definitions/CorrectiveAction'
+      tags:
+      - actions
+    parameters: []
+  /actions/overdue/:
+    get:
+      operationId: actions_overdue
+      summary: List overdue corrective actions
+      description: Returns actions with due_date < now and status != done.
+      parameters: []
+      responses:
+        '200':
+          description: ''
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/CorrectiveAction'
+      tags:
+      - actions
+    parameters: []
+  /actions/{id}/:
+    get:
+      operationId: actions_read
+      summary: CRUD for corrective actions with overdue helpers.
+      description: |-
+        Acceptance rules:
+        - Allow marking action as completed (status DONE, completed_at auto-set).
+        - When all actions for a defect are completed, defect status advances automatically.
+      parameters: []
+      responses:
+        '200':
+          description: ''
+          schema:
+            $ref: '#/definitions/CorrectiveAction'
+      tags:
+      - actions
+    put:
+      operationId: actions_update
+      summary: CRUD for corrective actions with overdue helpers.
+      description: |-
+        Acceptance rules:
+        - Allow marking action as completed (status DONE, completed_at auto-set).
+        - When all actions for a defect are completed, defect status advances automatically.
+      parameters:
+      - name: data
+        in: body
+        required: true
+        schema:
+          $ref: '#/definitions/CorrectiveAction'
+      responses:
+        '200':
+          description: ''
+          schema:
+            $ref: '#/definitions/CorrectiveAction'
+      tags:
+      - actions
+    patch:
+      operationId: actions_partial_update
+      summary: CRUD for corrective actions with overdue helpers.
+      description: |-
+        Acceptance rules:
+        - Allow marking action as completed (status DONE, completed_at auto-set).
+        - When all actions for a defect are completed, defect status advances automatically.
+      parameters:
+      - name: data
+        in: body
+        required: true
+        schema:
+          $ref: '#/definitions/CorrectiveAction'
+      responses:
+        '200':
+          description: ''
+          schema:
+            $ref: '#/definitions/CorrectiveAction'
+      tags:
+      - actions
+    delete:
+      operationId: actions_delete
+      summary: CRUD for corrective actions with overdue helpers.
+      description: |-
+        Acceptance rules:
+        - Allow marking action as completed (status DONE, completed_at auto-set).
+        - When all actions for a defect are completed, defect status advances automatically.
+      parameters: []
+      responses:
+        '204':
+          description: ''
+      tags:
+      - actions
+    parameters:
+    - name: id
+      in: path
+      description: A unique integer value identifying this corrective action.
+      required: true
+      type: integer
+  /dashboard/:
+    get:
+      operationId: dashboard_list
+      summary: Get dashboard metrics
+      description: Returns aggregate counts for defects and actions, including overdue
+        and breakdowns.
+      parameters: []
+      responses:
+        '200':
+          description: ''
+          schema:
+            $ref: '#/definitions/DashboardMetrics'
+      tags:
+      - dashboard
+    parameters: []
+  /defects/:
+    get:
+      operationId: defects_list
+      summary: CRUD for defects + workflow transitions, overdue queries, and CSV export.
+      description: |-
+        Acceptance-criteria enforcement:
+        - Root cause must be present before moving beyond "In Analysis".
+          (We interpret "beyond Open" as progressing out of analysis into action/closure stages.)
+        - Prevent closure unless at least one corrective action exists and all actions are completed.
+      parameters: []
+      responses:
+        '200':
+          description: ''
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/Defect'
+      tags:
+      - defects
+    post:
+      operationId: defects_create
+      summary: CRUD for defects + workflow transitions, overdue queries, and CSV export.
+      description: |-
+        Acceptance-criteria enforcement:
+        - Root cause must be present before moving beyond "In Analysis".
+          (We interpret "beyond Open" as progressing out of analysis into action/closure stages.)
+        - Prevent closure unless at least one corrective action exists and all actions are completed.
+      parameters:
+      - name: data
+        in: body
+        required: true
+        schema:
+          $ref: '#/definitions/Defect'
+      responses:
+        '201':
+          description: ''
+          schema:
+            $ref: '#/definitions/Defect'
+      tags:
+      - defects
+    parameters: []
+  /defects/export-csv/:
+    get:
+      operationId: defects_export_csv
+      summary: Export defects to CSV
+      description: |-
+        Exports defects to CSV. Supports same query filters as /defects/.
+        Response Content-Type: text/csv
+      parameters:
+      - name: status
+        in: query
+        type: string
+      - name: status_id
+        in: query
+        type: integer
+      - name: severity
+        in: query
+        type: string
+      - name: priority
+        in: query
+        type: string
+      - name: assigned_to
+        in: query
+        type: string
+      - name: overdue
+        in: query
+        type: boolean
+      responses:
+        '200':
+          description: CSV file
+      tags:
+      - export
+    parameters: []
+  /defects/overdue/:
+    get:
+      operationId: defects_overdue
+      summary: List overdue defects
+      description: Returns defects with due_date < now and not in terminal status.
+      parameters: []
+      responses:
+        '200':
+          description: ''
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/Defect'
+      tags:
+      - defects
+    parameters: []
+  /defects/{id}/:
+    get:
+      operationId: defects_read
+      summary: CRUD for defects + workflow transitions, overdue queries, and CSV export.
+      description: |-
+        Acceptance-criteria enforcement:
+        - Root cause must be present before moving beyond "In Analysis".
+          (We interpret "beyond Open" as progressing out of analysis into action/closure stages.)
+        - Prevent closure unless at least one corrective action exists and all actions are completed.
+      parameters: []
+      responses:
+        '200':
+          description: ''
+          schema:
+            $ref: '#/definitions/Defect'
+      tags:
+      - defects
+    put:
+      operationId: defects_update
+      summary: CRUD for defects + workflow transitions, overdue queries, and CSV export.
+      description: |-
+        Acceptance-criteria enforcement:
+        - Root cause must be present before moving beyond "In Analysis".
+          (We interpret "beyond Open" as progressing out of analysis into action/closure stages.)
+        - Prevent closure unless at least one corrective action exists and all actions are completed.
+      parameters:
+      - name: data
+        in: body
+        required: true
+        schema:
+          $ref: '#/definitions/Defect'
+      responses:
+        '200':
+          description: ''
+          schema:
+            $ref: '#/definitions/Defect'
+      tags:
+      - defects
+    patch:
+      operationId: defects_partial_update
+      summary: CRUD for defects + workflow transitions, overdue queries, and CSV export.
+      description: |-
+        Acceptance-criteria enforcement:
+        - Root cause must be present before moving beyond "In Analysis".
+          (We interpret "beyond Open" as progressing out of analysis into action/closure stages.)
+        - Prevent closure unless at least one corrective action exists and all actions are completed.
+      parameters:
+      - name: data
+        in: body
+        required: true
+        schema:
+          $ref: '#/definitions/Defect'
+      responses:
+        '200':
+          description: ''
+          schema:
+            $ref: '#/definitions/Defect'
+      tags:
+      - defects
+    delete:
+      operationId: defects_delete
+      summary: CRUD for defects + workflow transitions, overdue queries, and CSV export.
+      description: |-
+        Acceptance-criteria enforcement:
+        - Root cause must be present before moving beyond "In Analysis".
+          (We interpret "beyond Open" as progressing out of analysis into action/closure stages.)
+        - Prevent closure unless at least one corrective action exists and all actions are completed.
+      parameters: []
+      responses:
+        '204':
+          description: ''
+      tags:
+      - defects
+    parameters:
+    - name: id
+      in: path
+      description: A unique integer value identifying this defect.
+      required: true
+      type: integer
+  /defects/{id}/transition/:
+    post:
+      operationId: defects_transition
+      summary: Transition defect status (workflow-enforced)
+      description: |-
+        Performs a workflow transition for a defect by status code.
+
+        Acceptance rules:
+        - Root cause must exist before moving beyond analysis into action/verification/closure stages.
+        - You cannot transition to a terminal/closed status unless:
+          (1) at least one corrective action exists, and
+          (2) all actions are marked DONE.
+        - Only active statuses can be transitioned to.
+        - When transitioning to a terminal status, defect.closed_at is set.
+        - When transitioning from a terminal to non-terminal status, defect.closed_at is cleared.
+      parameters:
+      - name: data
+        in: body
+        required: true
+        schema:
+          $ref: '#/definitions/DefectTransitionRequest'
+      responses:
+        '200':
+          description: ''
+          schema:
+            $ref: '#/definitions/Defect'
+      tags:
+      - defects
+    parameters:
+    - name: id
+      in: path
+      description: A unique integer value identifying this defect.
+      required: true
+      type: integer
+  /five-whys/:
+    post:
+      operationId: five-whys_create
+      summary: Create/update/retrieve 5-Why analysis for a defect.
+      description: |-
+        Acceptance rules:
+        - After saving 5-Why, defect is automatically moved to "IN_ANALYSIS" if currently NEW/TRIAGED.
+      parameters:
+      - name: data
+        in: body
+        required: true
+        schema:
+          $ref: '#/definitions/FiveWhyAnalysis'
+      responses:
+        '201':
+          description: ''
+          schema:
+            $ref: '#/definitions/FiveWhyAnalysis'
+      tags:
+      - five-whys
+    parameters: []
+  /five-whys/by-defect/{defect_id}/:
+    put:
+      operationId: five-whys_upsert_by_defect
+      summary: Upsert 5-Why analysis for defect
+      description: |-
+        Creates or updates the defect's 5-Why analysis in a single call.
+
+        Side effects:
+        - If the defect is in NEW/TRIAGED and analysis is saved, defect is moved to IN_ANALYSIS automatically.
+      parameters:
+      - name: data
+        in: body
+        required: true
+        schema:
+          $ref: '#/definitions/FiveWhyAnalysis'
+      responses:
+        '200':
+          description: ''
+          schema:
+            $ref: '#/definitions/FiveWhyAnalysis'
+      tags:
+      - analysis
+    parameters:
+    - name: defect_id
+      in: path
+      required: true
+      type: string
+  /five-whys/{id}/:
+    get:
+      operationId: five-whys_read
+      summary: Create/update/retrieve 5-Why analysis for a defect.
+      description: |-
+        Acceptance rules:
+        - After saving 5-Why, defect is automatically moved to "IN_ANALYSIS" if currently NEW/TRIAGED.
+      parameters: []
+      responses:
+        '200':
+          description: ''
+          schema:
+            $ref: '#/definitions/FiveWhyAnalysis'
+      tags:
+      - five-whys
+    put:
+      operationId: five-whys_update
+      summary: Create/update/retrieve 5-Why analysis for a defect.
+      description: |-
+        Acceptance rules:
+        - After saving 5-Why, defect is automatically moved to "IN_ANALYSIS" if currently NEW/TRIAGED.
+      parameters:
+      - name: data
+        in: body
+        required: true
+        schema:
+          $ref: '#/definitions/FiveWhyAnalysis'
+      responses:
+        '200':
+          description: ''
+          schema:
+            $ref: '#/definitions/FiveWhyAnalysis'
+      tags:
+      - five-whys
+    patch:
+      operationId: five-whys_partial_update
+      summary: Create/update/retrieve 5-Why analysis for a defect.
+      description: |-
+        Acceptance rules:
+        - After saving 5-Why, defect is automatically moved to "IN_ANALYSIS" if currently NEW/TRIAGED.
+      parameters:
+      - name: data
+        in: body
+        required: true
+        schema:
+          $ref: '#/definitions/FiveWhyAnalysis'
+      responses:
+        '200':
+          description: ''
+          schema:
+            $ref: '#/definitions/FiveWhyAnalysis'
+      tags:
+      - five-whys
+    parameters:
+    - name: id
+      in: path
+      description: A unique integer value identifying this five why analysis.
+      required: true
+      type: integer
+  /health/:
+    get:
+      operationId: health_list
+      description: Health check endpoint.
+      parameters: []
+      responses:
+        '200':
+          description: ''
+      tags:
+      - health
+    parameters: []
+  /history/:
+    get:
+      operationId: history_list
+      description: Read-only access to defect history (comments, status changes, etc.).
+      parameters: []
+      responses:
+        '200':
+          description: ''
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/DefectHistory'
+      tags:
+      - history
+    parameters: []
+  /history/{id}/:
+    get:
+      operationId: history_read
+      description: Read-only access to defect history (comments, status changes, etc.).
+      parameters: []
+      responses:
+        '200':
+          description: ''
+          schema:
+            $ref: '#/definitions/DefectHistory'
+      tags:
+      - history
+    parameters:
+    - name: id
+      in: path
+      description: A unique integer value identifying this defect history.
+      required: true
+      type: integer
+  /workflow-statuses/:
+    get:
+      operationId: workflow-statuses_list
+      description: CRUD for workflow statuses (admin-like).
+      parameters: []
+      responses:
+        '200':
+          description: ''
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/WorkflowStatus'
+      tags:
+      - workflow-statuses
+    post:
+      operationId: workflow-statuses_create
+      description: CRUD for workflow statuses (admin-like).
+      parameters:
+      - name: data
+        in: body
+        required: true
+        schema:
+          $ref: '#/definitions/WorkflowStatus'
+      responses:
+        '201':
+          description: ''
+          schema:
+            $ref: '#/definitions/WorkflowStatus'
+      tags:
+      - workflow-statuses
+    parameters: []
+  /workflow-statuses/{id}/:
+    get:
+      operationId: workflow-statuses_read
+      description: CRUD for workflow statuses (admin-like).
+      parameters: []
+      responses:
+        '200':
+          description: ''
+          schema:
+            $ref: '#/definitions/WorkflowStatus'
+      tags:
+      - workflow-statuses
+    put:
+      operationId: workflow-statuses_update
+      description: CRUD for workflow statuses (admin-like).
+      parameters:
+      - name: data
+        in: body
+        required: true
+        schema:
+          $ref: '#/definitions/WorkflowStatus'
+      responses:
+        '200':
+          description: ''
+          schema:
+            $ref: '#/definitions/WorkflowStatus'
+      tags:
+      - workflow-statuses
+    patch:
+      operationId: workflow-statuses_partial_update
+      description: CRUD for workflow statuses (admin-like).
+      parameters:
+      - name: data
+        in: body
+        required: true
+        schema:
+          $ref: '#/definitions/WorkflowStatus'
+      responses:
+        '200':
+          description: ''
+          schema:
+            $ref: '#/definitions/WorkflowStatus'
+      tags:
+      - workflow-statuses
+    delete:
+      operationId: workflow-statuses_delete
+      description: CRUD for workflow statuses (admin-like).
+      parameters: []
+      responses:
+        '204':
+          description: ''
+      tags:
+      - workflow-statuses
+    parameters:
+    - name: id
+      in: path
+      description: A unique integer value identifying this workflow status.
+      required: true
+      type: integer
+definitions:
+  CorrectiveAction:
+    required:
+    - title
+    type: object
+    properties:
+      id:
+        title: ID
+        type: integer
+        readOnly: true
+      defect_id:
+        title: Defect id
+        type: integer
+        readOnly: true
+      title:
+        title: Title
+        type: string
+        minLength: 1
+      description:
+        title: Description
+        type: string
+      owner:
+        title: Owner
+        type: string
+      due_date:
+        title: Due date
+        type: string
+        format: date-time
+        x-nullable: true
+      completed_at:
+        title: Completed at
+        type: string
+        format: date-time
+        x-nullable: true
+      status:
+        title: Status
+        type: string
+        enum:
+        - open
+        - in_progress
+        - blocked
+        - done
+        - cancelled
+      effectiveness_check:
+        title: Effectiveness check
+        type: string
+      created_at:
+        title: Created at
+        type: string
+        format: date-time
+      updated_at:
+        title: Updated at
+        type: string
+        format: date-time
+        x-nullable: true
+  DashboardMetrics:
+    required:
+    - total_defects
+    - open_defects
+    - closed_defects
+    - overdue_defects
+    - open_actions
+    - overdue_actions
+    - done_actions
+    - actions_due_soon
+    - by_status
+    - by_severity
+    type: object
+    properties:
+      total_defects:
+        title: Total defects
+        type: integer
+      open_defects:
+        title: Open defects
+        type: integer
+      closed_defects:
+        title: Closed defects
+        type: integer
+      overdue_defects:
+        title: Overdue defects
+        type: integer
+      open_actions:
+        title: Open actions
+        type: integer
+      overdue_actions:
+        title: Overdue actions
+        type: integer
+      done_actions:
+        title: Done actions
+        type: integer
+      actions_due_soon:
+        title: Actions due soon
+        type: integer
+      by_status:
+        title: By status
+        type: object
+        additionalProperties:
+          type: integer
+      by_severity:
+        title: By severity
+        type: object
+        additionalProperties:
+          type: integer
+  WorkflowStatus:
+    required:
+    - code
+    - name
+    type: object
+    properties:
+      id:
+        title: ID
+        type: integer
+        readOnly: true
+      code:
+        title: Code
+        type: string
+        maxLength: 64
+        minLength: 1
+      name:
+        title: Name
+        type: string
+        maxLength: 128
+        minLength: 1
+      description:
+        title: Description
+        type: string
+      sort_order:
+        title: Sort order
+        type: integer
+        maximum: 9223372036854775807
+        minimum: 0
+      is_terminal:
+        title: Is terminal
+        type: boolean
+      is_active:
+        title: Is active
+        type: boolean
+      created_at:
+        title: Created at
+        type: string
+        format: date-time
+      updated_at:
+        title: Updated at
+        type: string
+        format: date-time
+        x-nullable: true
+  FiveWhyAnalysis:
+    type: object
+    properties:
+      id:
+        title: ID
+        type: integer
+        readOnly: true
+      defect_id:
+        title: Defect id
+        type: integer
+        readOnly: true
+      problem_statement:
+        title: Problem statement
+        type: string
+      why1:
+        title: Why1
+        type: string
+      why2:
+        title: Why2
+        type: string
+      why3:
+        title: Why3
+        type: string
+      why4:
+        title: Why4
+        type: string
+      why5:
+        title: Why5
+        type: string
+      root_cause:
+        title: Root cause
+        type: string
+      created_by:
+        title: Created by
+        type: string
+      created_at:
+        title: Created at
+        type: string
+        format: date-time
+      updated_at:
+        title: Updated at
+        type: string
+        format: date-time
+        x-nullable: true
+  Defect:
+    required:
+    - title
+    type: object
+    properties:
+      id:
+        title: ID
+        type: integer
+        readOnly: true
+      defect_key:
+        title: Defect key
+        type: string
+        maxLength: 64
+        x-nullable: true
+      title:
+        title: Title
+        type: string
+        minLength: 1
+      description:
+        title: Description
+        type: string
+      severity:
+        title: Severity
+        type: string
+        enum:
+        - low
+        - medium
+        - high
+        - critical
+      priority:
+        title: Priority
+        type: string
+        enum:
+        - low
+        - medium
+        - high
+        - urgent
+      status:
+        $ref: '#/definitions/WorkflowStatus'
+      status_id:
+        title: Status id
+        type: integer
+        x-nullable: true
+      part_number:
+        title: Part number
+        type: string
+        maxLength: 128
+      defect_type:
+        title: Defect type
+        type: string
+        enum:
+        - dimensional
+        - cosmetic
+        - functional
+        - labeling
+        - packaging
+        - other
+      quantity_affected:
+        title: Quantity affected
+        type: integer
+        maximum: 9223372036854775807
+        minimum: 0
+        x-nullable: true
+      production_line:
+        title: Production line
+        type: string
+        maxLength: 128
+      shift:
+        title: Shift
+        type: string
+        maxLength: 64
+      reported_by:
+        title: Reported by
+        type: string
+      assigned_to:
+        title: Assigned to
+        type: string
+      area:
+        title: Area
+        type: string
+      source:
+        title: Source
+        type: string
+      occurred_at:
+        title: Occurred at
+        type: string
+        format: date-time
+        x-nullable: true
+      due_date:
+        title: Due date
+        type: string
+        format: date-time
+        x-nullable: true
+      closed_at:
+        title: Closed at
+        type: string
+        format: date-time
+        x-nullable: true
+      created_at:
+        title: Created at
+        type: string
+        format: date-time
+      updated_at:
+        title: Updated at
+        type: string
+        format: date-time
+        x-nullable: true
+      five_why:
+        $ref: '#/definitions/FiveWhyAnalysis'
+      actions:
+        type: array
+        items:
+          $ref: '#/definitions/CorrectiveAction'
+        readOnly: true
+  DefectTransitionRequest:
+    required:
+    - to_status_code
+    type: object
+    properties:
+      to_status_code:
+        title: To status code
+        type: string
+        maxLength: 64
+        minLength: 1
+      actor:
+        title: Actor
+        type: string
+        default: ''
+        maxLength: 256
+      message:
+        title: Message
+        type: string
+        default: ''
+  DefectHistory:
+    required:
+    - event_type
+    type: object
+    properties:
+      id:
+        title: ID
+        type: integer
+        readOnly: true
+      defect_id:
+        title: Defect id
+        type: integer
+        readOnly: true
+      event_type:
+        title: Event type
+        type: string
+        enum:
+        - comment
+        - status_change
+        - edit
+        - analysis_update
+        - action_update
+        - system
+      message:
+        title: Message
+        type: string
+      from_status:
+        $ref: '#/definitions/WorkflowStatus'
+      to_status:
+        $ref: '#/definitions/WorkflowStatus'
+      actor:
+        title: Actor
+        type: string
+      created_at:
+        title: Created at
+        type: string
+        format: date-time
