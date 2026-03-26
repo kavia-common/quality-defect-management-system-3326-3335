@@ -391,7 +391,7 @@ export async function exportCsv() {
   // Prefer backend-provided filename (Content-Disposition).
   let filename = "defects.csv";
   const cd = res.headers.get("content-disposition") || "";
-  const m = cd.match(/filename\*?=(?:UTF-8'')?\"?([^\";]+)\"?/i);
+  const m = cd.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
   if (m && m[1]) filename = decodeURIComponent(m[1]);
 
   return { filename, blob, source: "backend" };

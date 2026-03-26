@@ -39,9 +39,7 @@ function daysOverdue(dueDateStr, status) {
   return diffMs > 0 ? Math.floor(diffMs / 86400000) : 0;
 }
 
-function isOverdue(dueDateStr, status) {
-  return daysOverdue(dueDateStr, status) > 0;
-}
+
 
 // PUBLIC_INTERFACE
 export default function DashboardPage() {

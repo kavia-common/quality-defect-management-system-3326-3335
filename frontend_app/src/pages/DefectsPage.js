@@ -152,23 +152,7 @@ export default function DefectsPage() {
     }
   };
 
-  const onQuickUpdate = async (id, patch) => {
-    setError("");
-    setSuccess("");
 
-    if (patch.due_date && !/^\d{4}-\d{2}-\d{2}$/.test(patch.due_date)) {
-      setError("Due date must be in YYYY-MM-DD format.");
-      return;
-    }
-
-    try {
-      await updateDefect(id, patch);
-      setSuccess("Defect updated.");
-      await refresh();
-    } catch (e) {
-      setError(e?.message || String(e));
-    }
-  };
 
   const onSetWorkflow = async (defect, uiStatus) => {
     setError("");
