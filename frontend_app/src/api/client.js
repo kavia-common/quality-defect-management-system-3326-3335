@@ -39,6 +39,13 @@ const API_BASE = resolveApiBase();
 
 function debugLog(...args) {
   if (process.env.NODE_ENV === "production") return;
+
+  // Logging full API payloads can noticeably slow initial page load in dev,
+  // especially for large lists (console serialization is expensive).
+  // Keep it opt-in via env flag.
+  const enabled = (process.env.REACT_APP_LOG_API || "").toString().toLowerCase();
+  if (!["1", "true", "yes"].includes(enabled)) return;
+
   // eslint-disable-next-line no-console
   console.log("[qdm-api]", ...args);
 }
