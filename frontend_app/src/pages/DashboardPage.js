@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { getDashboard, listActions, listDefects } from "../api/client";
-import { StatusPill, OverduePill, formatDate } from "../components/ui";
+import { StatusPill, formatDate } from "../components/ui";
 
 function normalizeMetrics(m) {
   if (!m) return null;
@@ -17,6 +17,30 @@ function normalizeMetrics(m) {
     by_status: m.by_status ?? m.defectsByStatus ?? null,
     by_severity: m.by_severity ?? m.defectsBySeverity ?? null,
   };
+}
+
+function normalizeDateToYmd(value) {
+  if (!value) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toISOString().slice(0, 10);
+}
+
+function daysOverdue(dueDateStr, status) {
+  if (!dueDateStr) return 0;
+  if (/(closed|done|verified)/i.test((status || "").toString())) return 0;
+  const due = new Date(`${normalizeDateToYmd(dueDateStr)}T00:00:00Z`);
+  if (Number.isNaN(due.getTime())) return 0;
+
+  const today = new Date();
+  const todayUtc = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+  const diffMs = todayUtc.getTime() - due.getTime();
+  return diffMs > 0 ? Math.floor(diffMs / 86400000) : 0;
+}
+
+function isOverdue(dueDateStr, status) {
+  return daysOverdue(dueDateStr, status) > 0;
 }
 
 // PUBLIC_INTERFACE
@@ -43,8 +67,28 @@ export default function DashboardPage() {
     refresh();
   }, []);
 
-  const overdueDefects = useMemo(() => defects.filter((d) => d.overdue).slice(0, 5), [defects]);
-  const overdueActions = useMemo(() => actions.filter((a) => a.overdue).slice(0, 5), [actions]);
+  // IMPORTANT:
+  // Do not depend on backend supplying an `overdue` boolean. The backend returns due_date + status.
+  // Compute overdue consistently so the list never silently empties.
+  const overdueDefects = useMemo(
+    () =>
+      defects
+        .map((d) => ({ ...d, overdue_days: d.overdue_days ?? daysOverdue(d.due_date, d.status) }))
+        .filter((d) => (d.overdue_days ?? 0) > 0)
+        .sort((a, b) => (b.overdue_days ?? 0) - (a.overdue_days ?? 0))
+        .slice(0, 5),
+    [defects]
+  );
+
+  const overdueActions = useMemo(
+    () =>
+      actions
+        .map((a) => ({ ...a, overdue_days: a.overdue_days ?? daysOverdue(a.due_date, a.status) }))
+        .filter((a) => (a.overdue_days ?? 0) > 0)
+        .sort((a, b) => (b.overdue_days ?? 0) - (a.overdue_days ?? 0))
+        .slice(0, 5),
+    [actions]
+  );
 
   const statusBars = useMemo(() => {
     const byStatus = metrics?.by_status;
@@ -152,7 +196,7 @@ export default function DashboardPage() {
                   <th>Title</th>
                   <th>Status</th>
                   <th>Due</th>
-                  <th>Risk</th>
+                  <th>Days overdue</th>
                 </tr>
               </thead>
               <tbody>
@@ -172,7 +216,7 @@ export default function DashboardPage() {
                       </td>
                       <td>{formatDate(d.due_date)}</td>
                       <td>
-                        <OverduePill dueDate={d.due_date} status={d.status} />
+                        <span className="pill pillRed">{d.overdue_days ?? 0}d</span>
                       </td>
                     </tr>
                   ))
@@ -198,7 +242,7 @@ export default function DashboardPage() {
                   <th>Action</th>
                   <th>Status</th>
                   <th>Due</th>
-                  <th>Risk</th>
+                  <th>Days overdue</th>
                 </tr>
               </thead>
               <tbody>
@@ -221,7 +265,7 @@ export default function DashboardPage() {
                       </td>
                       <td>{formatDate(a.due_date)}</td>
                       <td>
-                        <OverduePill dueDate={a.due_date} status={a.status} />
+                        <span className="pill pillRed">{a.overdue_days ?? 0}d</span>
                       </td>
                     </tr>
                   ))
@@ -231,8 +275,8 @@ export default function DashboardPage() {
           </div>
 
           <div className="note" style={{ marginTop: 10 }}>
-            Overdue actions should always appear here; if the backend is unavailable, this list is computed from the current
-            dataset.
+            Overdue actions should always appear here. If this list is empty while metrics show overdue counts, verify that
+            actions have due dates set and are not marked done.
           </div>
         </div>
       </div>
